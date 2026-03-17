@@ -18,7 +18,13 @@
     .btn-primary:hover { background: #16213e; }
     .btn-export { background: #1a4a2e; color: #fff; border-color: #1a4a2e; }
     .btn-export:hover { background: #153d25; }
-    .btn-export:disabled { background: #aaa; border-color: #aaa; cursor: not-allowed; }
+    .btn-email { background: #1a2e4a; color: #fff; border-color: #1a2e4a; }
+    .btn-email:hover { background: #152540; }
+    .btn-danger { background: #fff; color: #a32d2d; border-color: #f0c0c0; font-size: 13px; padding: 10px; }
+    .btn-danger:hover { background: #fcebeb; }
+    .btn-export:disabled, .btn-email:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
+    .export-row { display: flex; gap: 8px; margin-top: 12px; }
+    .export-row .btn { margin-bottom: 0; flex: 1; padding: 12px 8px; font-size: 13px; }
     #manual-section { margin-bottom: 1.5rem; display: none; }
     #manual-section.open { display: block; }
     .input-row { display: flex; gap: 8px; }
@@ -30,13 +36,16 @@
     .history-label { font-size: 12px; font-weight: 600; color: #888; letter-spacing: 0.07em; text-transform: uppercase; }
     .history-count { font-size: 12px; color: #aaa; }
     .history-list { border: 1px solid #e0e0d8; border-radius: 12px; overflow: hidden; background: #fff; }
-    .history-item { padding: 12px 16px; border-bottom: 1px solid #f0f0ea; }
+    .history-item { padding: 12px 16px; border-bottom: 1px solid #f0f0ea; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .history-item:last-child { border-bottom: none; }
+    .history-item-info { flex: 1; min-width: 0; }
     .tracking-num { font-size: 14px; font-weight: 600; color: #1a1a2e; font-family: 'Courier New', monospace; word-break: break-all; }
-    .scan-meta { font-size: 12px; color: #888; margin-top: 3px; display: flex; align-items: center; gap: 6px; }
+    .scan-meta { font-size: 12px; color: #888; margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .method-badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; }
     .badge-scan { background: #e1f5ee; color: #0f6e56; }
     .badge-manual { background: #e6f1fb; color: #185fa5; }
+    .delete-btn { flex-shrink: 0; background: none; border: none; cursor: pointer; padding: 6px; border-radius: 6px; color: #ccc; font-size: 16px; line-height: 1; transition: color 0.15s, background 0.15s; }
+    .delete-btn:hover { color: #a32d2d; background: #fcebeb; }
     .empty-state { text-align: center; padding: 2rem; color: #aaa; font-size: 14px; }
     #camera-section { display: none; margin-bottom: 1.5rem; }
     #camera-section.open { display: block; }
@@ -46,6 +55,7 @@
     .status-msg.show { display: block; }
     .status-success { background: #e1f5ee; color: #0f6e56; }
     .status-error { background: #fcebeb; color: #a32d2d; }
+    .email-hint { font-size: 11px; color: #aaa; text-align: center; margin-top: 6px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -92,63 +102,113 @@
       <div class="history-list" id="history-list">
         <div class="empty-state">No scans yet</div>
       </div>
-      <button class="btn btn-export" id="export-btn" onclick="exportCSV()" style="margin-top:12px;" disabled>Export to Excel (CSV)</button>
+      <div class="export-row">
+        <button class="btn btn-export" id="export-btn" onclick="exportCSV()" disabled>Export CSV</button>
+        <button class="btn btn-email" id="email-btn" onclick="emailCSV()" disabled>Email CSV</button>
+      </div>
+      <button class="btn btn-danger" id="clear-btn" onclick="clearAll()" style="display:none;">Clear All History</button>
+      <p class="email-hint" id="email-hint" style="display:none;">The CSV will download and your Mail app will open.<br>Attach the file from your Files app before sending.</p>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
   <script>
+    const STORAGE_KEY = 'packageScanHistory';
     let history = [];
     let codeReader = null;
     let scanning = false;
+
+    function loadFromStorage() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) history = JSON.parse(saved);
+      } catch(e) { history = []; }
+      renderHistory();
+    }
+
+    function saveToStorage() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch(e) {}
+    }
 
     function showStatus(msg, type) {
       const el = document.getElementById('status-msg');
       el.textContent = msg;
       el.className = 'status-msg show status-' + type;
-      setTimeout(() => { el.className = 'status-msg'; }, 3000);
+      setTimeout(() => { el.className = 'status-msg'; }, 4000);
     }
 
     function addScan(value, method) {
       const now = new Date();
       const timeStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      history.unshift({ value, method, time: timeStr });
+      history.unshift({ id: Date.now(), value, method, time: timeStr });
+      saveToStorage();
       renderHistory();
+    }
+
+    function deleteScan(id) {
+      history = history.filter(item => item.id !== id);
+      saveToStorage();
+      renderHistory();
+      showStatus('Entry removed.', 'success');
+    }
+
+    function clearAll() {
+      if (!confirm('Clear all scan history? This cannot be undone.')) return;
+      history = [];
+      saveToStorage();
+      renderHistory();
+      showStatus('History cleared.', 'success');
     }
 
     function renderHistory() {
       const list = document.getElementById('history-list');
       const countEl = document.getElementById('history-count');
       const exportBtn = document.getElementById('export-btn');
+      const emailBtn = document.getElementById('email-btn');
+      const clearBtn = document.getElementById('clear-btn');
+      const emailHint = document.getElementById('email-hint');
 
       if (history.length === 0) {
         list.innerHTML = '<div class="empty-state">No scans yet</div>';
         countEl.textContent = '';
         exportBtn.disabled = true;
+        emailBtn.disabled = true;
+        clearBtn.style.display = 'none';
+        emailHint.style.display = 'none';
         return;
       }
 
       countEl.textContent = history.length + ' total';
       exportBtn.disabled = false;
+      emailBtn.disabled = false;
+      clearBtn.style.display = 'block';
+      emailHint.style.display = 'block';
 
       list.innerHTML = history.map(item => `
         <div class="history-item">
-          <div class="tracking-num">${item.value}</div>
-          <div class="scan-meta">
-            <span>${item.time}</span>
-            <span class="method-badge ${item.method === 'scan' ? 'badge-scan' : 'badge-manual'}">${item.method === 'scan' ? 'Scanned' : 'Manual'}</span>
+          <div class="history-item-info">
+            <div class="tracking-num">${item.value}</div>
+            <div class="scan-meta">
+              <span>${item.time}</span>
+              <span class="method-badge ${item.method === 'scan' ? 'badge-scan' : 'badge-manual'}">${item.method === 'scan' ? 'Scanned' : 'Manual'}</span>
+            </div>
           </div>
+          <button class="delete-btn" onclick="deleteScan(${item.id})" title="Remove">&#x2715;</button>
         </div>
       `).join('');
     }
 
-    function exportCSV() {
-      if (history.length === 0) return;
+    function buildCSV() {
       const rows = [['Tracking Number', 'Date & Time', 'Method']];
       history.forEach(item => {
         rows.push([item.value, item.time, item.method === 'scan' ? 'Scanned' : 'Manual']);
       });
-      const csv = rows.map(r => r.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\n');
+      return rows.map(r => r.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\n');
+    }
+
+    function exportCSV() {
+      if (history.length === 0) return;
+      const csv = buildCSV();
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -156,7 +216,17 @@
       a.download = 'package-scans-' + new Date().toISOString().slice(0, 10) + '.csv';
       a.click();
       URL.revokeObjectURL(url);
-      showStatus('CSV exported successfully!', 'success');
+      showStatus('CSV downloaded successfully!', 'success');
+    }
+
+    function emailCSV() {
+      if (history.length === 0) return;
+      exportCSV();
+      const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      const subject = encodeURIComponent('Package Scans — ' + dateStr);
+      const body = encodeURIComponent('Hi,\n\nPlease find the package scan report for ' + dateStr + ' attached.\n\nTotal packages: ' + history.length + '\n\nSent from Package Scanner.');
+      setTimeout(() => { window.location.href = 'mailto:?subject=' + subject + '&body=' + body; }, 400);
+      showStatus('CSV downloaded — attach it in your Mail app!', 'success');
     }
 
     function toggleManual() {
@@ -218,6 +288,8 @@
       document.getElementById('camera-section').classList.remove('open');
       document.getElementById('scan-btn').textContent = 'Scan a Package';
     }
+
+    loadFromStorage();
   </script>
 </body>
 </html>
